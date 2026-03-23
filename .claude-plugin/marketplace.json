@@ -18,6 +18,15 @@
       "skills": [
         "./yannick-note"
       ]
+    },
+    {
+      "name": "yannick-todo",
+      "description": "Manage a personal todo list persisted in a remote GitHub repository. Add, list (by priority and due date), complete, and delete todos — all synced automatically via git.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./yannick-todo"
+      ]
     }
   ]
 }

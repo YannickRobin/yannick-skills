@@ -23,3 +23,4 @@ Personal productivity skills for Claude Code.
 | Skill | Description |
 |-------|-------------|
 | `yannick-note` | Manage personal notes persisted in a remote GitHub repository |
+| `yannick-todo` | Manage a personal todo list with priorities and due dates, persisted in a remote GitHub repository |
