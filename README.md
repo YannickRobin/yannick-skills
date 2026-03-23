@@ -6,36 +6,15 @@ Personal productivity skills for Claude Code.
 
 ### 1. Register the marketplace
 
-Add `yannick-skills` to your `~/.claude/settings.json`:
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "yannick-skills": {
-      "source": {
-        "source": "git",
-        "url": "https://github.tools.sap/I303937/yannick-skills.git"
-      }
-    }
-  }
-}
+```
+/plugin marketplace add https://github.tools.sap/I303937/yannick-skills.git
 ```
 
-### 2. Enable a skill
+### 2. Install a skill
 
-In the same `settings.json`, add the skill to `enabledPlugins`:
-
-```json
-{
-  "enabledPlugins": {
-    "yannick-note@yannick-skills": true
-  }
-}
 ```
-
-### 3. Restart Claude Code
-
-The skill will be available in your next session.
+/plugin install yannick-note@yannick-skills
+```
 
 ---
 
