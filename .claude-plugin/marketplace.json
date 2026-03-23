@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "yannick-skills",
+  "metadata": {
+    "description": "Personal productivity skills for Claude Code",
+    "version": "1.0.0"
+  },
+  "owner": {
+    "name": "Yannick Robin",
+    "email": "yannick.robin@sap.com"
+  },
+  "plugins": [
+    {
+      "name": "yannick-note",
+      "description": "Manage personal notes persisted in a remote GitHub repository. Add, search, list, update, and delete notes — all synced automatically via git.",
+      "source": "./",
+      "strict": false,
+      "skills": [
+        "./yannick-note"
+      ]
+    }
+  ]
+}
