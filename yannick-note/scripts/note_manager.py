@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-note_manager.py — CRUD operations on NOTES.md in a remote GitHub repo.
+note_manager.py — CRUD operations on per-note files in a remote GitHub repo.
 
 Usage:
   note_manager.py config              Check if repo is configured
@@ -23,10 +23,9 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".yannick-notes"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 REPO_DIR = CONFIG_DIR / "repo"
-NOTES_FILE = REPO_DIR / "NOTES.md"
+NOTES_DIR = REPO_DIR / "notes"
 
 NOTE_HEADER_RE = re.compile(r"^## \[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\] (.+)$", re.MULTILINE)
-SEPARATOR = "\n\n---\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +62,11 @@ def pull():
     git("pull", "--rebase", "origin", "HEAD")
 
 
-def commit_and_push(message: str):
-    git("add", "NOTES.md")
-    # Only commit if there are staged changes
+def commit_and_push(filepath: str, message: str, remove: bool = False):
+    if remove:
+        git("rm", filepath)
+    else:
+        git("add", filepath)
     status = subprocess.run(
         ["git", "diff", "--cached", "--quiet"],
         cwd=str(REPO_DIR)
@@ -78,40 +79,73 @@ def commit_and_push(message: str):
 
 
 # ---------------------------------------------------------------------------
-# Notes file helpers
+# Note file helpers
 # ---------------------------------------------------------------------------
 
-def read_raw() -> str:
-    if not NOTES_FILE.exists():
-        return ""
-    with open(NOTES_FILE) as f:
+def slugify(title: str) -> str:
+    slug = title.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    return slug or "note"
+
+
+def make_filename(title: str) -> str:
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    slug = slugify(title)
+    return f"{ts}-{slug}.md"
+
+
+def ensure_notes_dir():
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    if not any(NOTES_DIR.iterdir()):
+        gitkeep = NOTES_DIR / ".gitkeep"
+        gitkeep.touch()
+        git("add", "notes/.gitkeep")
+        status = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"],
+            cwd=str(REPO_DIR)
+        )
+        if status.returncode != 0:
+            git("commit", "-m", "note: initialise notes directory")
+            git("push")
+
+
+def get_note_files() -> list[Path]:
+    if not NOTES_DIR.exists():
+        return []
+    return sorted(p for p in NOTES_DIR.glob("*.md") if p.name != ".gitkeep")
+
+
+def read_note(path: Path) -> str:
+    with open(path) as f:
         return f.read()
 
 
-def write_raw(content: str):
-    with open(NOTES_FILE, "w") as f:
+def write_note(path: Path, content: str):
+    with open(path, "w") as f:
         f.write(content)
 
 
-def split_notes(raw: str) -> list[str]:
-    """Split raw NOTES.md content into individual note blocks."""
-    return [n.strip() for n in re.split(r"\n\n---\n\n|\n---\n", raw) if n.strip()]
+def parse_header(content: str):
+    """Return (timestamp, title) or (None, None)."""
+    m = NOTE_HEADER_RE.search(content)
+    if m:
+        return m.group(1), m.group(2)
+    return None, None
 
 
-def join_notes(notes: list[str]) -> str:
-    if not notes:
-        return ""
-    return SEPARATOR.join(notes) + "\n"
-
-
-def note_matches(note: str, identifier: str) -> bool:
-    """Return True if the identifier matches the note's timestamp or title (case-insensitive)."""
-    m = NOTE_HEADER_RE.search(note)
-    if not m:
-        return False
-    timestamp, title = m.groups()
+def note_file_matches(path: Path, identifier: str) -> bool:
+    """Return True if identifier matches note title, timestamp, or filename stem."""
+    content = read_note(path)
+    timestamp, title = parse_header(content)
     ident_lower = identifier.lower()
-    return ident_lower in title.lower() or ident_lower in timestamp
+    if title and ident_lower in title.lower():
+        return True
+    if timestamp and ident_lower in timestamp:
+        return True
+    if ident_lower in path.stem.lower():
+        return True
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -140,122 +174,107 @@ def cmd_setup(repo_url: str):
         subprocess.run(["git", "clone", repo_url, str(REPO_DIR)], check=True)
         print(f"Cloned repo to: {REPO_DIR}")
 
-    # Ensure NOTES.md exists
-    if not NOTES_FILE.exists():
-        write_raw("# Notes\n\n")
-        commit_and_push("note: initialise NOTES.md")
-
+    ensure_notes_dir()
     print("Setup complete.")
 
 
 def cmd_add(title: str, content: str):
     pull()
+    ensure_notes_dir()
+
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    new_note = f"## [{now}] {title}\n\n{content}"
+    filename = make_filename(title)
+    note_path = NOTES_DIR / filename
+    write_note(note_path, f"## [{now}] {title}\n\n{content}\n")
 
-    raw = read_raw()
-    if raw.strip():
-        write_raw(raw.rstrip() + SEPARATOR + new_note + "\n")
-    else:
-        write_raw(new_note + "\n")
-
-    commit_and_push(f"note: add '{title}'")
-    print(f"Added note: [{now}] {title}")
+    commit_and_push(f"notes/{filename}", f"note: add '{title}'")
+    print(f"Added note: [{now}] {title} ({filename})")
 
 
 def cmd_search(query: str):
-    raw = read_raw()
-    if not raw.strip():
+    files = get_note_files()
+    if not files:
         print("No notes yet.")
         return
 
-    notes = split_notes(raw)
-    matches = [n for n in notes if query.lower() in n.lower()]
+    matches = [(p, read_note(p)) for p in files if query.lower() in read_note(p).lower()]
 
     if not matches:
         print(f"No notes found matching '{query}'.")
         return
 
     print(f"Found {len(matches)} note(s) matching '{query}':\n")
-    for i, note in enumerate(matches, 1):
+    for i, (path, content) in enumerate(matches, 1):
         print(f"--- [{i}] ---")
-        print(note)
+        print(content)
         print()
 
 
 def cmd_list():
-    raw = read_raw()
-    if not raw.strip():
+    files = get_note_files()
+    if not files:
         print("No notes yet.")
         return
 
-    headers = NOTE_HEADER_RE.findall(raw)
-    if not headers:
-        print("No structured notes found.")
-        return
-
-    print(f"{len(headers)} note(s):\n")
-    for i, (timestamp, title) in enumerate(headers, 1):
-        print(f"  {i:>3}. [{timestamp}] {title}")
+    print(f"{len(files)} note(s):\n")
+    for i, path in enumerate(files, 1):
+        content = read_note(path)
+        timestamp, title = parse_header(content)
+        if timestamp and title:
+            print(f"  {i:>3}. [{timestamp}] {title}")
+        else:
+            print(f"  {i:>3}. {path.name}")
 
 
 def cmd_delete(identifier: str):
     pull()
-    raw = read_raw()
-    notes = split_notes(raw)
+    files = get_note_files()
 
-    to_delete = [n for n in notes if note_matches(n, identifier)]
-    if not to_delete:
-        print(f"No note found matching '{identifier}'.")
-        sys.exit(1)
-
-    if len(to_delete) > 1:
-        print(f"Multiple notes match '{identifier}':")
-        for n in to_delete:
-            m = NOTE_HEADER_RE.search(n)
-            if m:
-                print(f"  [{m.group(1)}] {m.group(2)}")
-        print("Please use a more specific identifier.")
-        sys.exit(1)
-
-    kept = [n for n in notes if not note_matches(n, identifier)]
-    write_raw(join_notes(kept))
-
-    target = NOTE_HEADER_RE.search(to_delete[0])
-    label = f"[{target.group(1)}] {target.group(2)}" if target else identifier
-    commit_and_push(f"note: delete '{label}'")
-    print(f"Deleted note: {label}")
-
-
-def cmd_update(identifier: str, new_content: str):
-    pull()
-    raw = read_raw()
-    notes = split_notes(raw)
-
-    matches = [n for n in notes if note_matches(n, identifier)]
+    matches = [p for p in files if note_file_matches(p, identifier)]
     if not matches:
         print(f"No note found matching '{identifier}'.")
         sys.exit(1)
 
     if len(matches) > 1:
         print(f"Multiple notes match '{identifier}':")
-        for n in matches:
-            m = NOTE_HEADER_RE.search(n)
-            if m:
-                print(f"  [{m.group(1)}] {m.group(2)}")
+        for p in matches:
+            ts, title = parse_header(read_note(p))
+            print(f"  [{ts}] {title}" if ts and title else f"  {p.name}")
         print("Please use a more specific identifier.")
         sys.exit(1)
 
+    target = matches[0]
+    ts, title = parse_header(read_note(target))
+    label = f"[{ts}] {title}" if ts and title else target.name
+
+    commit_and_push(f"notes/{target.name}", f"note: delete '{label}'", remove=True)
+    print(f"Deleted note: {label}")
+
+
+def cmd_update(identifier: str, new_content: str):
+    pull()
+    files = get_note_files()
+
+    matches = [p for p in files if note_file_matches(p, identifier)]
+    if not matches:
+        print(f"No note found matching '{identifier}'.")
+        sys.exit(1)
+
+    if len(matches) > 1:
+        print(f"Multiple notes match '{identifier}':")
+        for p in matches:
+            ts, title = parse_header(read_note(p))
+            print(f"  [{ts}] {title}" if ts and title else f"  {p.name}")
+        print("Please use a more specific identifier.")
+        sys.exit(1)
+
+    target = matches[0]
+    orig_ts, title = parse_header(read_note(target))
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
-    original = NOTE_HEADER_RE.search(matches[0])
-    orig_ts = original.group(1) if original else "unknown"
-    title = original.group(2) if original else identifier
 
-    updated_note = f"## [{now}] {title}\n\n{new_content}\n\n*(Updated — originally [{orig_ts}])*"
-    new_notes = [updated_note if note_matches(n, identifier) else n for n in notes]
-    write_raw(join_notes(new_notes))
+    write_note(target, f"## [{now}] {title}\n\n{new_content}\n\n*(Updated — originally [{orig_ts}])*\n")
 
-    commit_and_push(f"note: update '{title}'")
+    commit_and_push(f"notes/{target.name}", f"note: update '{title}'")
     print(f"Updated note: [{now}] {title}")
 
 

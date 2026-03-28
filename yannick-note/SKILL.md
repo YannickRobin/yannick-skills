@@ -5,7 +5,7 @@ description: Manage personal notes persisted in a remote GitHub repository. Use 
 
 # yannick-note
 
-Manage personal notes in a `NOTES.md` file stored in a remote GitHub repository.
+Manage personal notes stored as individual `.md` files in the `notes/` directory of a remote GitHub repository.
 
 ## First-time setup
 
@@ -21,7 +21,7 @@ If not configured (exit code 1 or "not configured" output), ask the user for the
 python <skill-dir>/scripts/note_manager.py setup <GITHUB_REPO_URL>
 ```
 
-This clones the repo to `~/.yannick-notes/repo/` and saves the URL to `~/.yannick-notes/config.json`. This only needs to happen once.
+This clones the repo to `~/.yannick-notes/repo/`, creates the `notes/` subdirectory, and saves the URL to `~/.yannick-notes/config.json`. This only needs to happen once.
 
 ## Operations
 
@@ -66,9 +66,9 @@ When the user says "update note about ...", "change note ...":
 python <skill-dir>/scripts/note_manager.py update "<identifier>" "<new_content>"
 ```
 
-## Note format in NOTES.md
+## Note format
 
-Each note looks like this:
+Each note is stored as a separate file in `notes/` with the name `{YYYYMMDD-HHMMSS}-{slug}.md` (e.g. `20260323-143000-your-note-title.md`). The file content looks like:
 
 ```markdown
 ## [2026-03-23 14:30] Your note title
@@ -76,13 +76,13 @@ Each note looks like this:
 Note content goes here.
 ```
 
-Notes are separated by `---`. The script handles all formatting — don't write to NOTES.md directly.
+The script handles all file creation and naming — don't write to `notes/` directly.
 
 ## After every write operation
 
 The script automatically:
 1. Pulls latest from the remote repo (to avoid conflicts)
-2. Appends/modifies `NOTES.md`
+2. Creates/modifies/deletes the individual note file in `notes/`
 3. Commits with a descriptive message
 4. Pushes to the remote repo
 
